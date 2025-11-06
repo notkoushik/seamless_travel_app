@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base Colors -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!--
+    =================================================
+    LIGHT MODE "AVIATION" THEME
+    =================================================
+    -->
+    <color name="primary">#FF3B82F6</color> <!-- Blue-600 -->
+    <color name="primary_variant">#FF2563EB</color> <!-- Blue-700 -->
+    <color name="on_primary">#FFFFFFFF</color> <!-- White -->
+
+    <color name="secondary">#FFF3F4F6</color> <!-- Gray-100 -->
+    <color name="on_secondary">#FF1F2937</color> <!-- Gray-800 -->
+
+    <color name="background">#FFFFFFFF</color> <!-- White -->
+    <color name="on_background">#FF1E293B</color> <!-- Slate-800 -->
+
+    <color name="surface">#FFFFFFFF</color> <!-- White -->
+    <color name="on_surface">#FF1E293B</color> <!-- Slate-800 -->
+    <color name="on_surface_variant">#FF6B7280</color> <!-- Gray-500 -->
+
+    <color name="border">#FFE5E7EB</color> <!-- Gray-200 -->
+    <color name="gray_200">#FFE5E7EB</color> <!-- For card stroke -->
+
+    <!--
+    =================================================
+    DARK MODE "AVIATION" THEME
+    =================================================
+    -->
+    <color name="background_dark">#FF111827</color> <!-- Slate-900 -->
+    <color name="on_background_dark">#FFFFFFFF</color> <!-- White -->
+    <color name="surface_dark">#FF1F2937</color> <!-- Slate-800 -->
+    <color name="on_surface_dark">#FFFFFFFF</color> <!-- White -->
+    <color name="on_surface_variant_dark">#FF9CA3AF</color> <!-- Gray-400 -->
+    <color name="border_dark">#FF374151</color> <!-- Gray-700 -->
+
+    <!--
+    =================================================
+    FUNCTIONAL COLORS (Same for Light/Dark)
+    =================================================
+    -->
+    <color name="success">#FF10B981</color> <!-- Green-500 -->
+    <color name="success_foreground">#FFFFFFFF</color>
+    <color name="warning">#FFF59E0B</color> <!-- Amber-500 -->
+    <color name="warning_foreground">#FFFFFFFF</color>
+    <color name="destructive">#FFEF4444</color> <!-- Red-500 -->
+    <color name="destructive_foreground">#FFFFFFFF</color>
+
+    <!--
+    =================================================
+    AIRLINE COLORS (for WalletFragment)
+    =================================================
+    -->
+    <color name="air_india_red">#FFD9230F</color>
+    <color name="air_india_text">#FFFFFFFF</color>
+    <color name="indigo_blue">#FF00387B</color>
+    <color name="indigo_text">#FFFFFFFF</color>
+    <color name="vistara_purple">#FF5A2F6B</color>
+    <color name="vistara_text">#FFFFFFFF</color>
+    <color name="default_pass_bg">#FF4285F4</color>
+    <color name="default_pass_text">#FFFFFFFF</color>
+</resources>
