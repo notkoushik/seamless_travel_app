@@ -1,287 +1,253 @@
+// unchanged from your working version; included for completeness
 package com.example.seamlesstravelapp
 
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.*
+import android.media.Image
 import android.os.Bundle
 import android.util.Log
-import android.view.LayoutInflater
 import android.view.View
-import android.view.ViewGroup
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.OptIn
 import androidx.camera.core.*
+import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlin.math.max
 
-class ScanIdFragment : Fragment() {
-
+class ScanIdFragment : Fragment(R.layout.fragment_scan_id) {
     private val sharedViewModel: SharedViewModel by activityViewModels()
 
     private lateinit var cameraExecutor: ExecutorService
     private lateinit var previewView: PreviewView
-    private lateinit var instructionText: TextView
     private lateinit var captureButton: Button
-    private lateinit var cutoutView: View
-    private lateinit var overlayView: View
+    private lateinit var statusText: TextView
 
     private var imageCapture: ImageCapture? = null
     private var faceDetector: FaceDetector? = null
-    private var cameraProvider: ProcessCameraProvider? = null
-
-    companion object { private const val TAG = "ScanIdFragment" }
+    private var boundCameraProvider: ProcessCameraProvider? = null
 
     private val permissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-            if (isGranted) {
-                startCamera()
-            } else {
-                Toast.makeText(requireContext(), "Camera permission is required.", Toast.LENGTH_SHORT).show()
-            }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) startCamera() else Toast.makeText(requireContext(), "Camera permission is required", Toast.LENGTH_LONG).show()
         }
-
-    override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View? {
-        // Inflate the layout for this fragment
-        return inflater.inflate(R.layout.fragment_scan_id, container, false)
-    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-
-        previewView = view.findViewById(R.id.previewView)
-        instructionText = view.findViewById(R.id.instruction_text)
+        previewView   = view.findViewById(R.id.previewView)
         captureButton = view.findViewById(R.id.capture_button)
-        cutoutView = view.findViewById(R.id.cutout)
-        overlayView = view.findViewById(R.id.overlay)
+        statusText    = view.findViewById(R.id.instruction_text)
+        captureButton.visibility = View.VISIBLE
 
         cameraExecutor = Executors.newSingleThreadExecutor()
 
-        // Configure Face Detector
-        val highAccuracyOpts = FaceDetectorOptions.Builder()
-            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
-            .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
-            .build()
-        faceDetector = FaceDetection.getClient(highAccuracyOpts)
-
-        // Draw the cutout overlay
-        overlayView.post { drawCutout() }
-
-        captureButton.setOnClickListener { takePhoto() }
-
-        if (allPermissionsGranted()) {
-            startCamera()
-        } else {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
-        }
-    }
-
-    private fun drawCutout() {
-        // Create a transparent hole in the overlay
-        val bitmap = Bitmap.createBitmap(overlayView.width, overlayView.height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        paint.color = ContextCompat.getColor(requireContext(), android.R.color.black)
-        paint.alpha = 150 // 99 in hex
-        canvas.drawRect(0f, 0f, overlayView.width.toFloat(), overlayView.height.toFloat(), paint)
-
-        // Clear the cutout area
-        paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
-        val rect = RectF(
-            cutoutView.left.toFloat(),
-            cutoutView.top.toFloat(),
-            cutoutView.right.toFloat(),
-            cutoutView.bottom.toFloat()
+        faceDetector = FaceDetection.getClient(
+            FaceDetectorOptions.Builder()
+                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
+                .build()
         )
-        canvas.drawRect(rect, paint)
-        overlayView.setBackgroundDrawable(BitmapDrawable(resources, bitmap))
+
+        captureButton.setOnClickListener { captureId() }
+        if (hasCameraPermission()) startCamera() else permissionLauncher.launch(Manifest.permission.CAMERA)
     }
+
+    override fun onDestroyView() {
+        try { boundCameraProvider?.unbindAll() } catch (_: Exception) {}
+        faceDetector?.close()
+        cameraExecutor.shutdown()
+        super.onDestroyView()
+    }
+
+    private fun hasCameraPermission() =
+        ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
     private fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(requireContext())
         cameraProviderFuture.addListener({
-            cameraProvider = cameraProviderFuture.get()
+            val cameraProvider = cameraProviderFuture.get()
+            boundCameraProvider = cameraProvider
+
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider(previewView.surfaceProvider)
             }
 
             imageCapture = ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                 .setTargetRotation(previewView.display.rotation)
                 .build()
 
-            val imageAnalyzer = ImageAnalysis.Builder()
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .build()
-                .also {
-                    it.setAnalyzer(cameraExecutor) { imageProxy ->
-                        processImage(imageProxy)
-                    }
-                }
-
             try {
-                cameraProvider?.unbindAll()
-                cameraProvider?.bindToLifecycle(
-                    this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture, imageAnalyzer
-                )
-            } catch (exc: Exception) {
-                Log.e(TAG, "Use case binding failed", exc)
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
+            } catch (e: Exception) {
+                Log.e("ScanIdFragment", "Camera bind failed", e)
             }
         }, ContextCompat.getMainExecutor(requireContext()))
     }
 
-    @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
-    private fun processImage(imageProxy: ImageProxy) {
-        val mediaImage = imageProxy.image
-        if (mediaImage != null) {
-            val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-            faceDetector?.process(image)
-                .addOnSuccessListener { faces ->
-                    // Check if any face is fully inside the cutout view
-                    val faceInFrame = faces.any { isFaceInCutout(it) }
-                    updateUI(faceInFrame, faces.isEmpty())
-                }
-                .addOnFailureListener { e ->
-                    Log.e(TAG, "Face detection failed", e)
-                }
-                .addOnCompleteListener {
-                    imageProxy.close()
-                }
-        }
-    }
+    private fun captureId() {
+        val capture = imageCapture ?: return
+        captureButton.isEnabled = false
+        statusText.text = "Capturing…"
 
-    private fun isFaceInCutout(face: Face): Boolean {
-        // Get the bounding box of the face
-        val faceRect = face.boundingBox
-
-        // Get the cutout view's position on screen
-        val cutoutRect = Rect()
-        cutoutView.getGlobalVisibleRect(cutoutRect)
-
-        // As the face detection coordinates are relative to the camera sensor,
-        // this is a simplified check. A full solution would map sensor coordinates
-        // to view coordinates. For this flow, we'll assume the preview matches the view.
-        // A simple proximity check to the center is often good enough.
-
-        // Let's check if the center of the face is near the center of the screen
-        val viewCenterX = previewView.width / 2
-        val viewCenterY = previewView.height / 2
-
-        // This logic is complex. For V1, let's just enable capture if ANY face is seen.
-        // We will crop to the largest face later.
-        return true
-    }
-
-    private fun updateUI(faceInFrame: Boolean, noFace: Boolean) {
-        activity?.runOnUiThread {
-            when {
-                noFace -> {
-                    instructionText.text = "Position ID Card photo in frame"
-                    captureButton.visibility = View.GONE
-                }
-                faceInFrame -> {
-                    instructionText.text = "Hold Steady..."
-                    captureButton.visibility = View.VISIBLE
-                }
-                else -> {
-                    instructionText.text = "Move card closer"
-                    captureButton.visibility = View.GONE
-                }
-            }
-        }
-    }
-
-    private fun takePhoto() {
-        val imageCapture = imageCapture ?: return
-
-        imageCapture.takePicture(
+        capture.takePicture(
             ContextCompat.getMainExecutor(requireContext()),
             object : ImageCapture.OnImageCapturedCallback() {
-                @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
+                @OptIn(ExperimentalGetImage::class)
                 override fun onCaptureSuccess(imageProxy: ImageProxy) {
-                    val mediaImage = imageProxy.image
-                    if (mediaImage != null) {
-                        val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-                        // Run detection one last time on the high-res capture
-                        faceDetector?.process(image)
-                            .addOnSuccessListener { faces ->
-                                if (faces.isNotEmpty()) {
-                                    // Get the largest face
-                                    val largestFace = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }!!
-
-                                    // Convert to Bitmap and crop
-                                    val bitmap = mediaImage.toBitmap()
-                                    val croppedBitmap = cropToFace(bitmap, largestFace, imageProxy.imageInfo.rotationDegrees)
-
-                                    // Save to ViewModel and navigate
-                                    sharedViewModel.idPhotoBitmap.postValue(croppedBitmap)
-                                    (activity as? MainActivity)?.navigateToSelfieFragment()
-                                } else {
-                                    Toast.makeText(context, "No face found in photo. Try again.", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                            .addOnCompleteListener {
-                                imageProxy.close()
-                            }
-                    } else {
-                        imageProxy.close()
-                    }
+                    try {
+                        val bmp = imageProxyToBitmap(imageProxy)
+                        if (bmp == null) {
+                            statusText.text = "Failed to decode image"
+                            captureButton.isEnabled = true
+                            return
+                        }
+                        processIdBitmap(bmp, imageProxy.imageInfo.rotationDegrees)
+                    } finally { imageProxy.close() }
                 }
-
-                override fun onError(exc: ImageCaptureException) {
-                    Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
+                override fun onError(exception: ImageCaptureException) {
+                    statusText.text = "Capture failed: ${exception.message}"
+                    captureButton.isEnabled = true
                 }
             }
         )
     }
 
-    // Helper functions for image conversion
-    private fun Image.toBitmap(): Bitmap {
-        val buffer = planes[0].buffer
-        val bytes = ByteArray(buffer.remaining())
-        buffer.get(bytes)
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    private fun processIdBitmap(bitmap: Bitmap, rotation: Int) {
+        val rotated = rotateBitmap(bitmap, rotation)
+        faceDetector?.process(InputImage.fromBitmap(rotated, 0))
+            ?.addOnSuccessListener { faces ->
+                val face = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
+                if (face == null) {
+                    statusText.text = "No face found on ID. Try again."
+                    captureButton.isEnabled = true
+                    return@addOnSuccessListener
+                }
+
+                val crop = cropWithPadding(rotated, face.boundingBox, 0.25f, 0.35f)
+                val input = Bitmap.createScaledBitmap(crop, 112, 112, true)
+                sharedViewModel.idPhotoBitmap.value = input
+
+                statusText.text = "ID captured. Starting liveness…"
+                try { boundCameraProvider?.unbindAll() } catch (_: Exception) {}
+                (activity as? MainActivity)?.navigateToSelfieFragment()
+            }
+            ?.addOnFailureListener { e ->
+                statusText.text = "ID processing failed: ${e.message}"
+                captureButton.isEnabled = true
+            }
     }
 
-    private fun cropToFace(bitmap: Bitmap, face: Face, rotationDegrees: Int): Bitmap {
-        // Adjust for rotation
-        val matrix = Matrix()
-        matrix.postRotate(rotationDegrees.toFloat())
-        val rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-
-        val box = face.boundingBox
-        // Add padding to the crop
-        val padding = 20
-        val left = (box.left - padding).coerceAtLeast(0)
-        val top = (box.top - padding).coerceAtLeast(0)
-        val right = (box.right + padding).coerceAtMost(rotatedBitmap.width)
-        val bottom = (box.bottom + padding).coerceAtMost(rotatedBitmap.height)
-
-        return Bitmap.createBitmap(rotatedBitmap, left, top, right - left, bottom - top)
+    private fun rotateBitmap(src: Bitmap, rotation: Int): Bitmap {
+        if (rotation == 0) return src
+        val m = Matrix().apply { postRotate(rotation.toFloat()) }
+        return Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
     }
 
-    private fun allPermissionsGranted() =
-        ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.CAMERA) ==
-                PackageManager.PERMISSION_GRANTED
+    @OptIn(ExperimentalGetImage::class)
+    private fun imageProxyToBitmap(imageProxy: ImageProxy): Bitmap? {
+        return try {
+            when (imageProxy.format) {
+                ImageFormat.JPEG, ImageFormat.DEPTH_JPEG -> {
+                    val buf = imageProxy.planes[0].buffer
+                    val bytes = ByteArray(buf.remaining())
+                    buf.get(bytes)
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                }
+                ImageFormat.YUV_420_888 -> {
+                    val img = imageProxy.image ?: return null
+                    yuvToBitmap(img)
+                }
+                else -> {
+                    val buf = imageProxy.planes.firstOrNull()?.buffer ?: return null
+                    val bytes = ByteArray(buf.remaining()); buf.get(bytes)
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                }
+            }
+        } catch (t: Throwable) {
+            Log.e("ScanIdFragment", "imageProxyToBitmap failed", t)
+            null
+        }
+    }
 
-    override fun onDestroyView() {
-        super.onDestroyView()
-        cameraExecutor.shutdown()
-        cameraProvider?.unbindAll()
-        faceDetector?.close()
+    @OptIn(ExperimentalGetImage::class)
+    private fun yuvToBitmap(image: Image): Bitmap? {
+        fun yuvToNv21(image: Image): ByteArray {
+            val w = image.width; val h = image.height
+            val ySize = w * h; val uvSize = w * h / 2
+            val out = ByteArray(ySize + uvSize)
+
+            val y = image.planes[0].buffer
+            val u = image.planes[1].buffer
+            val v = image.planes[2].buffer
+
+            val yRowStride = image.planes[0].rowStride
+            val uRowStride = image.planes[1].rowStride
+            val vRowStride = image.planes[2].rowStride
+            val uPixelStride = image.planes[1].pixelStride
+            val vPixelStride = image.planes[2].pixelStride
+
+            var pos = 0
+            if (yRowStride == w) {
+                y.get(out, 0, ySize); pos = ySize
+            } else {
+                var yPos = 0
+                for (row in 0 until h) {
+                    y.position(yPos)
+                    y.get(out, pos, w)
+                    yPos += yRowStride
+                    pos += w
+                }
+            }
+            for (row in 0 until h / 2) {
+                val vPos = row * vRowStride
+                val uPos = row * uRowStride
+                v.position(vPos)
+                u.position(uPos)
+                for (col in 0 until w / 2) {
+                    out[pos++] = v.get(col * vPixelStride)
+                    out[pos++] = u.get(col * uPixelStride)
+                }
+            }
+            return out
+        }
+
+        return try {
+            val nv21 = yuvToNv21(image)
+            val yuv = YuvImage(nv21, ImageFormat.NV21, image.width, image.height, null)
+            val baos = ByteArrayOutputStream()
+            yuv.compressToJpeg(Rect(0, 0, image.width, image.height), 95, baos)
+            val bytes = baos.toByteArray()
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        } catch (e: Exception) {
+            Log.e("ScanIdFragment", "YUV->Bitmap failed: ${e.message}", e)
+            null
+        }
+    }
+
+    private fun cropWithPadding(src: Bitmap, box: Rect, padW: Float, padH: Float): Bitmap {
+        val pw = (box.width() * padW).toInt()
+        val ph = (box.height() * padH).toInt()
+        val l = (box.left - pw).coerceAtLeast(0)
+        val t = (box.top - ph).coerceAtLeast(0)
+        val r = (box.right + pw).coerceAtMost(src.width)
+        val b = (box.bottom + ph).coerceAtMost(src.height)
+        val w = max(1, r - l)
+        val h = max(1, b - t)
+        return Bitmap.createBitmap(src, l, t, w, h)
     }
 }

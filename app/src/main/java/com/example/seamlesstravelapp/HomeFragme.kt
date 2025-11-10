@@ -58,7 +58,7 @@ class HomeFragment : Fragment() {
 
         // --- FIX: Correct ID for "Enroll in ProPass" button ---
         binding.btnStartVerification.setOnClickListener {
-            mainActivity?.navigateToPassportFragment()
+            mainActivity?.navigateToScanIdFragment()
         }
 
         // --- FIX: Correct ID for "Flight Registration" button ---
