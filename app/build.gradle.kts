@@ -109,6 +109,7 @@ dependencies {
     implementation("com.google.mlkit:face-detection:16.1.6")
     implementation("com.google.mlkit:barcode-scanning:17.2.0")
 
+
     // ============================================
     // ARCHITECTURE COMPONENTS
     // ============================================
@@ -140,4 +141,6 @@ dependencies {
     // --- ADD THESE FOR TENSORFLOW LITE FACE RECOGNITION ---
     implementation("org.tensorflow:tensorflow-lite:2.9.0")
     implementation("org.tensorflow:tensorflow-lite-support:0.4.0")
+
+
 }

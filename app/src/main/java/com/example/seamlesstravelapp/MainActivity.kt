@@ -24,6 +24,8 @@ class MainActivity : AppCompatActivity() {
     fun navigateToHomeFragment() = replaceFragment(HomeFragment())
     fun navigateToPassportFragment() = replaceFragment(PassportFragment())
     fun navigateToSelfieFragment() = replaceFragment(SelfieFragment())
+
+    fun navigateToAadhaarFragment() = replaceFragment(AadhaarFragment())
     fun navigateToScanIdFragment() = replaceFragment(ScanIdFragment())
     fun navigateToBoardingPassFragment() = replaceFragment(BoardingPassFragment())
     fun navigateToWalletFragment() = replaceFragment(WalletFragment())
