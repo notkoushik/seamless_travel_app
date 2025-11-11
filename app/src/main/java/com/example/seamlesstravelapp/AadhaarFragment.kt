@@ -7,14 +7,14 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.util.Base64
 import android.util.Log
-import android.view.LayoutInflater
 import android.view.View
-import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
-import androidx.camera.core.*
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ExperimentalGetImage
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
@@ -31,20 +31,24 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
-import java.io.ByteArrayInputStream
+import java.io.StringReader
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import java.util.zip.ZipInputStream
+import java.util.concurrent.atomic.AtomicBoolean
 
 class AadhaarFragment : Fragment(R.layout.fragment_aadhaar) {
 
     private val sharedViewModel: SharedViewModel by activityViewModels()
+
     private lateinit var cameraExecutor: ExecutorService
     private lateinit var previewView: PreviewView
     private lateinit var instructionText: TextView
     private var imageAnalysis: ImageAnalysis? = null
     private var cameraProvider: ProcessCameraProvider? = null
     private var qrScanner: BarcodeScanner? = null
+
+    // --- ADDED: This flag prevents the scanner from firing 1000 times ---
+    private val isProcessing = AtomicBoolean(false)
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -105,9 +109,15 @@ class AadhaarFragment : Fragment(R.layout.fragment_aadhaar) {
         }, ContextCompat.getMainExecutor(requireContext()))
     }
 
-    @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
+    @OptIn(ExperimentalGetImage::class)
     private fun buildQrAnalyzer(): ImageAnalysis.Analyzer {
         return ImageAnalysis.Analyzer { imageProxy ->
+            // --- FIX 1: Check if we are already processing a QR code ---
+            if (isProcessing.get()) {
+                imageProxy.close()
+                return@Analyzer
+            }
+
             val mediaImage = imageProxy.image
             if (mediaImage != null) {
                 val image =
@@ -115,13 +125,18 @@ class AadhaarFragment : Fragment(R.layout.fragment_aadhaar) {
                 qrScanner?.process(image)
                     ?.addOnSuccessListener { barcodes ->
                         if (barcodes.isNotEmpty()) {
-                            // Found QR Code
+                            // --- FIX 2: Set flag to true to stop scanner from firing again ---
+                            isProcessing.set(true)
                             stopCamera() // Stop scanning
-                            val qrData = barcodes.first().rawValue
-                            if (qrData != null) {
-                                Log.d("AadhaarFragment", "QR Data Found")
-                                // Now, we have the encrypted ZIP data. Ask for password.
-                                askForShareCode(qrData.toByteArray(Charsets.ISO_8859_1))
+
+                            // This is the raw XML text from your test QR code
+                            val xmlString = barcodes.first().rawValue
+
+                            if (xmlString != null) {
+                                Log.d("AadhaarFragment", "QR Data Found. Parsing...")
+                                instructionText.text = "QR Scanned. Processing..."
+                                // --- FIX 3: REMOVED password step, go DIRECTLY to parsing ---
+                                parseAadhaarXml(xmlString)
                             }
                         }
                     }
@@ -135,138 +150,121 @@ class AadhaarFragment : Fragment(R.layout.fragment_aadhaar) {
         }
     }
 
-    private fun askForShareCode(zipData: ByteArray) {
-        // This must run on the UI thread
-        activity?.runOnUiThread {
-            val builder = AlertDialog.Builder(requireContext())
-            val inflater = requireActivity().layoutInflater
-            val dialogView = inflater.inflate(R.layout.dialog_share_code, null)
-            val editText = dialogView.findViewById<EditText>(R.id.share_code_input)
+    // --- FIX 4: REMOVED the askForShareCode(...) function ---
+    // --- FIX 5: REMOVED the processAadhaarZip(...) function ---
 
-            builder.setView(dialogView)
-                .setTitle("Enter Share Code")
-                .setMessage("Enter your 4-digit share code for e-Aadhaar")
-                .setPositiveButton("OK") { dialog, _ ->
-                    val code = editText.text.toString()
-                    if (code.length == 4) {
-                        instructionText.text = "Verifying..."
-                        // Process in background
-                        processAadhaarZip(zipData, code)
-                    } else {
-                        Toast.makeText(context, "Must be 4 digits", Toast.LENGTH_SHORT).show()
-                        restartCamera() // Try again
-                    }
-                    dialog.dismiss()
-                }
-                .setNegativeButton("Cancel") { dialog, _ ->
-                    dialog.cancel()
-                    restartCamera() // User cancelled, restart scanner
-                }
-                .show()
-        }
-    }
-
-    private fun processAadhaarZip(zipData: ByteArray, shareCode: String) {
+    /**
+     * This function parses the XML string from the QR code.
+     * It looks for two things:
+     * 1. The <Poi> tag to get the attributes (name, dob, gender)
+     * 2. The <Photo> or <Pht> tag to get the Base64 text
+     */
+    private fun parseAadhaarXml(xmlString: String) {
+        // Run this on a background thread
         lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val photoBitmap = extractPhotoFromZip(zipData, shareCode)
+            var name: String? = null
+            var dob: String? = null
+            var gender: String? = null
+            var base64Photo: String? = null
 
-                withContext(Dispatchers.Main) {
-                    if (photoBitmap != null) {
-                        Log.d("AadhaarFragment", "Aadhaar Photo Extracted!")
-                        // SUCCESS! Save bitmap and move to SelfieFragment
+            try {
+                val factory = XmlPullParserFactory.newInstance()
+                val parser = factory.newPullParser()
+                // Use StringReader to read the XML string
+                parser.setInput(StringReader(xmlString))
+
+                var eventType = parser.eventType
+
+                // Loop through the XML tags
+                while (eventType != XmlPullParser.END_DOCUMENT) {
+                    val tagName = parser.name
+
+                    if (eventType == XmlPullParser.START_TAG) {
+                        // The demographic data is in the *attributes* of the "Poi" tag
+                        if (tagName.equals("Poi", ignoreCase = true)) {
+                            name = parser.getAttributeValue(null, "name")
+                            dob = parser.getAttributeValue(null, "dob")
+                            gender = parser.getAttributeValue(null, "gender")
+                        }
+                        // The photo is in the *text* of the "Photo" tag
+                        else if (tagName.equals("Photo", ignoreCase = true)) {
+                            base64Photo = parser.nextText()
+                        }
+                        // Also check for <Pht> tag (used in official XML)
+                        else if (tagName.equals("Pht", ignoreCase = true)) {
+                            base64Photo = parser.nextText()
+                        }
+                    }
+                    eventType = parser.next()
+                }
+
+                // --- ALL PARSING IS DONE, NOW CHECK THE RESULTS ---
+
+                if (name != null && dob != null && gender != null && base64Photo != null) {
+                    // We found everything!
+
+                    // 1. Create the AadhaarData object
+                    val aadhaarInfo = AadhaarData(name = name, dob = dob, gender = gender)
+
+                    // 2. Decode the Base64 photo
+                    val imageBytes = Base64.decode(base64Photo, Base64.DEFAULT)
+                    val photoBitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+
+                    // 3. Switch back to the Main thread to update ViewModel and navigate
+                    withContext(Dispatchers.Main) {
+                        Log.d("AadhaarFragment", "Aadhaar Info Extracted: $name")
+
+                        // --- SAVE DATA TO VIEWMODEL ---
+                        sharedViewModel.aadhaarData.value = aadhaarInfo
                         sharedViewModel.idPhotoBitmap.value = photoBitmap
+
+                        // --- NAVIGATE TO SELFIE FRAGMENT ---
                         (activity as? MainActivity)?.navigateToSelfieFragment()
-                    } else {
-                        // Failed (e.g., wrong password, bad zip)
-                        Toast.makeText(context, "Verification Failed. Wrong share code or invalid QR.", Toast.LENGTH_LONG).show()
-                        restartCamera()
+                    }
+                } else {
+                    // Failed to find one of the required tags
+                    withContext(Dispatchers.Main) {
+                        Log.e(
+                            "AadhaarFragment",
+                            "Parse Error: Missing tags. Name: $name, DOB: $dob, Photo: ${base64Photo != null}"
+                        )
+                        Toast.makeText(
+                            context,
+                            "Could not find all required data in QR. Try again.",
+                            Toast.LENGTH_LONG
+                        ).show()
+
+                        // --- FIX 6: Reset the flag on failure ---
+                        isProcessing.set(false)
+                        restartCamera() // Try again
                     }
                 }
             } catch (e: Exception) {
-                Log.e("AadhaarFragment", "Error processing ZIP", e)
+                Log.e("AadhaarFragment", "Error processing XML", e)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Error: Invalid XML. Try again.", Toast.LENGTH_LONG)
+                        .show()
+
+                    // --- FIX 7: Reset the flag on failure ---
+                    isProcessing.set(false)
                     restartCamera()
                 }
             }
         }
     }
 
-    @Throws(Exception::class)
-    private fun extractPhotoFromZip(zipData: ByteArray, shareCode: String): Bitmap? {
-        ZipInputStream(ByteArrayInputStream(zipData)).use { zis ->
-            // Set password
-            // Note: This assumes the default Java ZipInputStream supports passwords.
-            // If not, we'd need a library like 'zip4j'
-            // For this example, we'll assume it's a standard zip or needs a different method.
-
-            // --- SIMPLIFIED: Android's ZipInputStream doesn't support passwords.
-            // We'll use a common library for this. Please add:
-            // implementation 'net.lingala.zip4j:zip4j:2.11.5'
-            // ---
-            // The QR data is NOT a zip file, it's *BigInteger* data.
-            // The UIDAI SDK is required for this.
-
-            // --- MAJOR CORRECTION ---
-            // The raw QR data is NOT a ZIP file. It's a custom-encoded block of data.
-            // You must use an official SDK or follow a very complex spec to parse it.
-
-            // --- SIMPLIFIED FAKE PARSER FOR THIS EXAMPLE ---
-            // Since we cannot implement the full UIDAI spec here, we will *simulate*
-            // finding a Base64 string in the QR data.
-            // In a real app, 'zipData' would be passed to a UIDAI-provided library.
-
-            // This is a placeholder for the complex parsing logic.
-            // Let's assume the QR code *only* contained the Base64 photo string.
-            // This is NOT how it works in production, but allows us to build the flow.
-
-            val (base64Photo, error) = simulateAadhaarParse(zipData)
-
-            if (base64Photo != null) {
-                val imageBytes = Base64.decode(base64Photo, Base64.DEFAULT)
-                return BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
-            } else {
-                Log.e("AadhaarFragment", "Failed to parse simulated data: $error")
-                return null
-            }
-        }
-    }
-
-    /**
-     * THIS IS A SIMULATOR. The real Aadhaar QR data is not this simple.
-     * This function pretends to find a Base64 photo inside the QR data.
-     */
-    private fun simulateAadhaarParse(qrData: ByteArray): Pair<String?, String?> {
-        val qrString = String(qrData)
-        // Let's pretend the QR string is simple XML: <Kyc>...<Photo>BASE64...</Photo></Kyc>
-        try {
-            val factory = XmlPullParserFactory.newInstance()
-            val parser = factory.newPullParser()
-            parser.setInput(ByteArrayInputStream(qrData), "UTF-8")
-
-            var eventType = parser.eventType
-            while (eventType != XmlPullParser.END_DOCUMENT) {
-                if (eventType == XmlPullParser.START_TAG && parser.name == "Photo") {
-                    val base64String = parser.nextText()
-                    return Pair(base64String, null)
-                }
-                eventType = parser.next()
-            }
-            return Pair(null, "No <Photo> tag found")
-        } catch (e: Exception) {
-            return Pair(null, e.message)
-        }
-    }
-
 
     private fun stopCamera() {
-        imageAnalysis?.clearAnalyzer()
-        cameraProvider?.unbindAll()
+        activity?.runOnUiThread {
+            imageAnalysis?.clearAnalyzer()
+            cameraProvider?.unbindAll()
+        }
     }
 
     private fun restartCamera() {
         activity?.runOnUiThread {
+            // --- FIX 8: Reset the flag when restarting ---
+            isProcessing.set(false)
             instructionText.text = "Scan your Aadhaar QR Code"
             startCamera()
         }

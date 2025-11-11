@@ -51,9 +51,10 @@ class HomeFragment : Fragment() {
             // Toast.makeText(context, "Selfie clicked", Toast.LENGTH_SHORT).show()
         }
 
+        // --- *** MODIFIED THIS CLICK LISTENER *** ---
         binding.btnFastTrackIcon.setOnClickListener {
-            // Show toast or navigate
-            Toast.makeText(context, "Fast Track clicked", Toast.LENGTH_SHORT).show()
+            // Navigate to Aadhaar flow
+            mainActivity?.navigateToAadhaarFragment()
         }
 
         // --- FIX: Correct ID for "Enroll in ProPass" button ---
@@ -89,4 +90,3 @@ class HomeFragment : Fragment() {
         _binding = null
     }
 }
-

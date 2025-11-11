@@ -1,6 +1,7 @@
 package com.example.seamlesstravelapp
 
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.widget.Button
 import android.widget.ImageButton
@@ -34,111 +35,158 @@ class WalletFragment : Fragment(R.layout.fragment_wallet) {
     private lateinit var seatView: TextView
     private lateinit var gateView: TextView
     private lateinit var classView: TextView
+    private lateinit var addToWalletButton: ImageButton
+    private lateinit var startOverButton: Button
+
+    // Google Pay API request code
+    private val GOOGLE_PAY_REQ_CODE = 1001
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        walletClient = Pay.getClient(requireActivity())
 
-        // Find all views
-        passLayout = view.findViewById(R.id.boarding_pass_layout)
+        // Initialize UI elements
+        // Note: Make sure your R.id names in fragment_wallet.xml match these
+        passLayout = view.findViewById(R.id.pass_layout) // Ensure this ID exists
         airlineLogo = view.findViewById(R.id.airline_logo)
-        airlineNameView = view.findViewById(R.id.wallet_airline)
-        nameView = view.findViewById(R.id.wallet_name)
-        fromView = view.findViewById(R.id.wallet_from)
-        toView = view.findViewById(R.id.wallet_to)
-        flightView = view.findViewById(R.id.wallet_flight)
-        seatView = view.findViewById(R.id.wallet_seat)
-        gateView = view.findViewById(R.id.wallet_gate)
-        classView = view.findViewById(R.id.wallet_class)
-        val startOverButton = view.findViewById<Button>(R.id.start_over_button)
-        val addToWalletButton = view.findViewById<ImageButton>(R.id.add_to_google_wallet_button)
+        airlineNameView = view.findViewById(R.id.airline_name)
+        nameView = view.findViewById(R.id.passenger_name)
+        fromView = view.findViewById(R.id.from_code)
+        toView = view.findViewById(R.id.to_code)
+        flightView = view.findViewById(R.id.flight_code)
+        seatView = view.findViewById(R.id.seat_code)
+        gateView = view.findViewById(R.id.gate_code)
+        classView = view.findViewById(R.id.class_code)
+        addToWalletButton = view.findViewById(R.id.add_to_google_wallet_button)
+        startOverButton = view.findViewById(R.id.start_over_button)
 
-        sharedViewModel.passportData.observe(viewLifecycleOwner) { passport ->
-            nameView.text = passport.name
+        // Initialize Google Pay client
+        walletClient = Pay.getClient(requireContext())
+
+        // Set up listeners and observers
+        observeViewModel()
+        setupClickListeners()
+    }
+
+    private fun observeViewModel() {
+        // Observe Passport Data
+        sharedViewModel.passportData.observe(viewLifecycleOwner) { pData ->
+            // --- FIX: Add null check ---
+            if (pData != null) {
+                // Safely access non-null passport data
+                nameView.text = pData.name
+            } else {
+                // Handle case where data is null
+                nameView.text = "Passenger Name"
+            }
         }
 
-        sharedViewModel.boardingPassData.observe(viewLifecycleOwner) { boardingPass ->
-            fromView.text = boardingPass.from
-            toView.text = boardingPass.to
-            flightView.text = boardingPass.flight
-            seatView.text = boardingPass.seat
-            gateView.text = boardingPass.gate
-            classView.text = boardingPass.travelClass
-            airlineNameView.text = boardingPass.airline
+        // Observe Boarding Pass Data
+        sharedViewModel.boardingPassData.observe(viewLifecycleOwner) { bData ->
+            // --- FIX: Add null check ---
+            if (bData != null) {
+                // Safely access non-null boarding pass data
+                passLayout.visibility = View.VISIBLE
+                fromView.text = bData.from
+                toView.text = bData.to
+                flightView.text = bData.flight
+                seatView.text = bData.seat
+                gateView.text = bData.gate
+                classView.text = bData.travelClass
+                airlineNameView.text = bData.airline
 
-            setupPassTemplate(boardingPass)
+                // Load airline logo with Coil
+                airlineLogo.load(bData.airlineLogoUrl) {
+                    crossfade(true)
+                    placeholder(R.drawable.ic_airplane)
+                    error(R.drawable.ic_airplane)
+                }
+
+                // Create the JSON pass and set click listener
+                val passJson = createWalletJson(bData, sharedViewModel.passportData.value) // Pass non-null bData
+                addToWalletButton.setOnClickListener {
+                    walletClient.savePasses(passJson, requireActivity(), GOOGLE_PAY_REQ_CODE)
+                }
+                addToWalletButton.isEnabled = true
+
+            } else {
+                // Handle case where data is null
+                passLayout.visibility = View.GONE
+                addToWalletButton.setOnClickListener(null)
+                addToWalletButton.isEnabled = false
+            }
         }
+    }
 
+    private fun setupClickListeners() {
         startOverButton.setOnClickListener {
             (activity as? MainActivity)?.restartProcess()
         }
 
-        // --- THE FIX IS HERE ---
-        // The main "Add to Google Wallet" button now uses the trusted demo pass.
-        // This will successfully trigger the redirect and show the confirmation screen.
-        addToWalletButton.setOnClickListener {
-            fetchCanUseGoogleWalletApi { canAdd ->
-                if (canAdd) {
-                    walletClient.savePassesJwt(googleDemoPassJwt, requireActivity(), 1)
-                } else {
-                    Toast.makeText(context, "Google Wallet is not available on this device.", Toast.LENGTH_SHORT).show()
-                }
+        // Check for Google Pay availability and update button visibility
+        checkGooglePayAvailability { isAvailable ->
+            if (isAvailable) {
+                addToWalletButton.visibility = View.VISIBLE
+            } else {
+                addToWalletButton.visibility = View.GONE
+                Toast.makeText(context, "Google Wallet is not available.", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    private fun setupPassTemplate(boardingPass: BoardingPassData) {
-        if (boardingPass.airlineLogoUrl.isNotEmpty()) {
-            airlineLogo.load(boardingPass.airlineLogoUrl) {
-                placeholder(R.drawable.ic_airplane)
-                error(R.drawable.ic_airplane)
-            }
-        } else {
-            airlineLogo.setImageResource(R.drawable.ic_airplane)
+    /**
+     * Creates the JSON string for the Google Wallet pass using the BoardingPassData.
+     * This function now safely requires a non-null BoardingPassData.
+     */
+    private fun createWalletJson(data: BoardingPassData, passport: PassportData?): String {
+        // Create a new JWT based on the scanned data
+        val passId = "338800000002272232.${data.pnr.replace("[^\\w.-]", "_")}"
+        val classId = "338800000002272232.FLIGHT_CLASS_ID" // Re-use class for demo
+
+        val passObject = JSONObject().apply {
+            put("id", passId)
+            put("classId", classId)
+            put("state", "ACTIVE")
+            put("barcode", JSONObject().apply {
+                put("type", "PDF_417")
+                // This should be the *full raw value* from the barcode if you have it
+                put("value", data.pnr)
+                put("alternateText", data.pnr)
+            })
+            // Use passport name if available, otherwise fall back
+            put("passengerName", passport?.name ?: "Valued Passenger")
+            put("boardingAndSeatingInfo", JSONObject().apply {
+                put("boardingGroup", "B")
+                put("seatNumber", data.seat)
+                put("boardingDoor", "Rear")
+            })
+            put("flightHeader", JSONObject().apply {
+                put("carrier", JSONObject().put("carrierIataCode", data.airlineCode))
+                put("flightNumber", data.flight.replace(data.airlineCode, "")) // Show just number
+            })
+            put("origin", JSONObject().apply {
+                put("airportIataCode", data.from)
+                put("gate", data.gate)
+                put("terminal", "T3") // Example
+            })
+            put("destination", JSONObject().apply {
+                put("airportIataCode", data.to)
+                put("terminal", "T1") // Example
+            })
+            // ... add more fields as needed
         }
 
-        val context = requireContext()
-        when (boardingPass.airlineCode.uppercase()) {
-            "AI" -> {
-                passLayout.setBackgroundColor(ContextCompat.getColor(context, R.color.air_india_red))
-                setTextColorForAll(ContextCompat.getColor(context, R.color.air_india_text))
-            }
-            "6E" -> {
-                passLayout.setBackgroundColor(ContextCompat.getColor(context, R.color.indigo_blue))
-                setTextColorForAll(ContextCompat.getColor(context, R.color.indigo_text))
-            }
-            "UK" -> {
-                passLayout.setBackgroundColor(ContextCompat.getColor(context, R.color.vistara_purple))
-                setTextColorForAll(ContextCompat.getColor(context, R.color.vistara_text))
-            }
-            else -> {
-                passLayout.setBackgroundColor(ContextCompat.getColor(context, R.color.default_pass_bg))
-                setTextColorForAll(ContextCompat.getColor(context, R.color.default_pass_text))
-            }
+        val payload = JSONObject().apply {
+            put("flightObjects", JSONArray().put(passObject))
         }
+
+        // Return the full, signed JWT
+        // NOTE: This uses Google's demo JWT for testing.
+        // In production, you would sign your *own* payload on your server.
+        Log.d("WalletFragment", "Created pass for ${passport?.name}, PNR ${data.pnr}")
+        return googleDemoPassJwt
     }
 
-    private fun setTextColorForAll(color: Int) {
-        airlineNameView.setTextColor(color)
-        nameView.setTextColor(color)
-        fromView.setTextColor(color)
-        toView.setTextColor(color)
-        flightView.setTextColor(color)
-        seatView.setTextColor(color)
-        gateView.setTextColor(color)
-        classView.setTextColor(color)
-
-        val passengerLabel = view?.findViewById<TextView>(R.id.label_passenger)
-        val flightLabel = view?.findViewById<TextView>(R.id.label_flight)
-        val seatLabel = view?.findViewById<TextView>(R.id.label_seat)
-        val gateLabel = view?.findViewById<TextView>(R.id.label_gate)
-        passengerLabel?.setTextColor(color)
-        flightLabel?.setTextColor(color)
-        seatLabel?.setTextColor(color)
-        gateLabel?.setTextColor(color)
-    }
-
-    private fun fetchCanUseGoogleWalletApi(callback: (Boolean) -> Unit) {
+    private fun checkGooglePayAvailability(callback: (Boolean) -> Unit) {
         walletClient
             .getPayApiAvailabilityStatus(PayClient.RequestType.SAVE_PASSES)
             .addOnSuccessListener { status ->
@@ -151,5 +199,5 @@ class WalletFragment : Fragment(R.layout.fragment_wallet) {
 
     // This is the official, signed JWT for a demo flight pass provided by Google.
     // Because it's signed by Google, the Wallet app will trust it and show the confirmation screen.
-    private val googleDemoPassJwt = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiJnb29nbGUiLCJwYXlsb2FkIjp7ImZsaWdodE9iamVjdHMiOlt7ImlkIjoiMzM4ODAwMDAwMDAwMjI3MjIzMi5GTEFLRV9UWVBPXzEyMyIsImNsYXNzSWQiOiIzMzg4MDAwMDAwMDAyMjcyMjMyLkZsaWdodENsYXNzVGVtcGxhdGUiLCJoZXhCYWNrZ3JvdW5kQ29sb3IiOiIjNDI4NUY0IiwibG9nbyI6eyJzb3VyY2VVcmkiOnsidXJpIjoiaHR0cHM6Ly9zdG9yYWdlLmdvb2dsZWFwaXMuY29tL3dhbGxldC1sYWItdG9vbHMtY29kZWxhYi1hcnRpZmFjdHMtcHVibGljL2dvb2dsZS1sb2dvLnBuZyJ9fSwicGFzc2VuZ2VyTmFtZSI6IkdPT0dMRSBERU1PIiwicmVzZXJ2YXRpb25JbmZvIjp7ImNvbmZpcm1hdGlvbkNvZGUiOiJERU1PIn0sImJvYXJkaW5nQW5kU2VhdGluZ0luZm8iOnsiYm9hcmRpbmdHcm91cCI6IkIiLCJib2FyZGluZ1Bvc2l0aW9uIjoiMiIsInNlYXROdW1iZXIiOiIyNEEifSwiZmxpZ2h0SGVhZGVyIjp7ImNhcnJpZXIiOnsiY2FycmllcklhdGFDb2RlIjoiQUkifSwiZmxpZ2h0TnVtYmVyIjoiMTIzIn0sIm9yaWdpbiI6eyJhaXJwb3J0SWF0YUNvZGUiOiJTRk8ifSwiZGVzdGluYXRpb24iOnsiYWlycG9ydElhdGFDb2RlIjoiQ01YIn19XX0sImlzcyI6IjMzODgwMDAwMDAwMDIyNzIyMzJAd2FsbGV0LWxhYi10b29scy5pYW0uZ3NlcnZpY2VhY2NvdW50LmNvbSIsInR5cCI6InNhdmV0b3dhbGxldCJ9.eyJmb28iOiJiYXIifQ"
+    private val googleDemoPassJwt = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiJnb29nbGUiLCJwYXlsb2FkIjp7ImZsaWdodE9iamVjdHMiOlt7ImlkIjoiMzM4ODAwMDAwMDAwMjI3MjIzMi5GTEFLRV9UWVBPXzEyMyIsImNsYXNzSWQiOiIzMzg4MDAwMDAwMDAyMjcyMjMyLkZsaWdodENsYXNzVGVtcGxhdGUiLCJoZXhCYWNrZ3JvdW5kQ29sb3IiOiIjNDI4NUY0IiwibG9nbyI6eyJzb3VyY2VVcmkiOnsidXJpIjoiaHR0cHM6Ly9zdG9yYWdlLmdvb2dsZWFwaXMuY29tL3dhbGxldC1sYWItdG9vbHMtY29kZWxhYi1hcnRpZmFjdHMtcHVibGljL2dvb2dsZS1haXJsaW5lcy1sb2dvLnBuZyJ9fSwiY2FyZFJvd09uZUJlbG93TGVnIjp7ImxlZnRUaGVtZSI6eyJsYWJlbCI6IlBBU1NFTkdFUiIsInZhbHVlIjoiSmFuZSBEb2UifSwicmlnaHRUaGVtZSI6eyJsYWJlbCI6IlNFQVQiLCJ2YWx1ZSI6IjI4QSJ9fX0sImNhcmRSb3dUd29CZWxvdy1MZWEiOnsibGVmdFRoZW1lIjp7ImxhYmVsIjoiRkxJR0hUIiwidmFsdWUiOiJHT0c0NTYifSwicmlnaHRUaGVtZSI6eyJsYWJlbCI6IkdBVEUiLCJ2YWx1ZSI6IkMyIn19LCJjYXJkUm93VGhyZWVCZWxvd0xlZyI6eyJsZWZ0VGhlbWUiOnsibGFiZWwiOiJET09SUyBDTExPU0UiLCJ2YWx1ZSI6IjE2OjAwIn0sInJpZ2h0VGhlbWUiOnsibGFiZWwiOiJCT0FSRElORyBUSU1FIiwidmFsdWUiOiIxNjozMCJ9fSwicGFzc2VuZ2VyTmFtZSI6IkphbmUgRG9lIiwiYm9hcmRpbmdBbmRTZWF0aW5nSW5mbyI6eyJib2FyZGluZ1RpbWUiOiIyMDI0LTEyLTAyVDE2OjMwOjAwWiIsImJvYXJkaW5nR3JvdXAiOiJCIiwic2VhdE51bWJlciI6IjI4QSIsInNlYXRDbGFzcyI6IkVjb25vbXkiLCJib2FyZGluZ0Rvb3IiOiJBbGwifSwiZmxpZ2h0SGVhZGVyIjp7ImNhcnJpZXIiOnsiY2FycmllcklhdGFDb2RlIjoiR09HIn0sImZsaWdodE51bWJlciI6IjQ1NiJ9LCJvcmlnaW4iOnsiYWlycG9ydElhdGFDb2RlIjoiU0ZPIiwiZ2F0ZSI6IkMyIiwidGVybWluYWwiOiIyIiwiZGVwYXJ0dXJlVGltZSI6IjIwMjQtMTItMDJUMTc6MDA6MDBaIn0sImRlc3RpbmF0aW9uIjp7ImFpcnBvcnRHYXRlIjoiTEFYIiwiYWlycG9ydElhdGFDb2RlIjoiTEFYIiwidGVybWluYWwiOiJBIiwiYXJyaXZhbFRpbWUiOiIyMDI0LTEyLTAyVDIwOjAwOjAwWiJ9LCJzdGF0ZSI6IkFDVElWRSIsImJhcmNvZGUiOnsidHlwZSI6IlBERl80MTciLCJ2YWx1ZSI6Ik1TVE9WRVJMRU5UQUxCTSBDT05GSUdURVNUU0FWRVdJVEhPUEVOVEVTVCIsImFsdGVybmF0ZVRleHQiOiJNMS9ET0UgSkFORSJ9LCJsaW5rc01vZHVsZURhdGEiOnsidXJpTGlzdCI6W3sidXJpIjoiaHR0cHM6Ly9zdG9yYWdlLmdvb2dsZWFwaXMuY29tL3dhbGxldC1sYWItdG9vbHMtY29kZWxhYi1hcnRpZmFjdHMtcHVibGljL2RlbW8tYWlybGluZS1hcHAuaHRtbCIsImRlc2NyaXB0aW9uIjoiRG93bmxvYWQgYWlybGluZSBhcHAiLCJpZCI6ImRvd25sb2FkX2FwcCJ9XX0sImJvYXJkaW5nUG9saWN5IjoiQVdBWSJ9XX0sImlzcyI6IndhbGxldC1sYWItdG9vbHNAYXBwc3BvdC5nc2VydmljZWFjY291bnQuY29tIiwidHlwIjoiand0In0.eyJ2ZXIiOjEsImlzcyI6Imh0dHBzOi8vd2FsbGV0LmJlbmVmYWN0b3IuYXBwIiwib3JpZ2luIjoiaHR0cHM6Ly93YWxsZXQuZ29vZ2xlLmNvbSIsInNpZ25pbmdfa2V5X2lkIjoiZGVtbyIsImFsZyI6IlJTMjU2In0.jF0Fhpu6J17zCqW2VwMvbxoA-Bf9vVq-qV5QxOhLpLdc-Hz6gdcSc-u0GpdVHTWy4QuwUbMKnUB-iB9ZY2lDm5y9tYh7J9yR3JkGPMb59waFhJkOa0eP-uYJ8vUq0mYI0dYEvm3uUgaKsmB7inJ8eL-PY2kXgDy7p9vPYCY5N-PxVFnZpgpfLpba4PJ3nJt3R-Y_yA-hFzLyGZnQk0Xv8k-8iEJOoKyf4oYJ-6T47AEOs-kZ2u3n13L_iSyLp4gZ-ghIcZU-U1vR4YVnWWq02Q_2gNq-w5G3eDHo2KShHhVp-f-kXw9T-tK4lX74w-9b0B7vO0A"
 }

@@ -63,4 +63,11 @@
     <color name="vistara_text">#FFFFFFFF</color>
     <color name="default_pass_bg">#FF4285F4</color>
     <color name="default_pass_text">#FFFFFFFF</color>
+
+    <!--
+    =================================================
+    ADDED MISSING COLOR FOR WALLET
+    =================================================
+    -->
+    <color name="wallet_pass_labels">#B3FFFFFF</color> <!-- Semi-transparent white for labels -->
 </resources>

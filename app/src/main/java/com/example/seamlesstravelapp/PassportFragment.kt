@@ -18,6 +18,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.OptIn
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ExperimentalGetImage
@@ -44,7 +45,7 @@ import java.io.InputStream
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-@OptIn(ExperimentalGetImage::class)
+// @OptIn(ExperimentalGetImage::class) // <-- REMOVED FROM HERE, as it was causing a warning
 class PassportFragment : Fragment() {
 
     private var _binding: FragmentPassportBinding? = null
@@ -54,7 +55,6 @@ class PassportFragment : Fragment() {
     private lateinit var cameraExecutor: ExecutorService
     private var imageAnalysis: ImageAnalysis? = null
 
-    // 👇 THIS is the field your build was missing
     private var nfcAdapter: NfcAdapter? = null
 
     private var mrzInfo: MRZInfo? = null
@@ -188,6 +188,7 @@ class PassportFragment : Fragment() {
         }
     }
 
+    @OptIn(ExperimentalGetImage::class) // <-- MOVED TO FUNCTION LEVEL
     private fun analyzeImage() {
         val analysis = imageAnalysis ?: run {
             toastOnce("❌ Camera not ready!")
@@ -197,7 +198,7 @@ class PassportFragment : Fragment() {
 
         analysis.setAnalyzer(cameraExecutor) { imageProxy ->
             if (!isScanning) { imageProxy.close(); return@setAnalyzer }
-            val mediaImage = imageProxy.image
+            val mediaImage = imageProxy.image // This call requires the OptIn
             if (mediaImage == null) {
                 binding.resultText.post { binding.resultText.text = "❌ Camera frame error" }
                 imageProxy.close()
@@ -388,12 +389,23 @@ class PassportFragment : Fragment() {
         val currentMrzInfo = mrzInfo ?: return
         if (tag != null) {
             toastOnce("📳 Reading chip…")
+            @Suppress("DEPRECATION") // ADDED for the execute() call
             ReadPassportTask(tag, currentMrzInfo,
                 onSuccess = { passportData ->
                     sharedViewModel.passportData.postValue(passportData)
+                    // --- START FIX for Architecture PDF ---
+                    // Save the chip photo to idPhotoBitmap for SelfieFragment
+                    passportData.photo?.let {
+                        sharedViewModel.idPhotoBitmap.postValue(it)
+                    }
+                    // --- END FIX ---
                     activity?.runOnUiThread {
                         toastOnce("✅ Chip scanned!")
-                        (activity as? MainActivity)?.navigateToConfirmationFragment("passport")
+                        // --- START FIX for Architecture PDF ---
+                        // Navigate to SelfieFragment instead of Confirmation
+                        // (activity as? MainActivity)?.navigateToConfirmationFragment("passport")
+                        (activity as? MainActivity)?.navigateToSelfieFragment()
+                        // --- END FIX ---
                     }
                 },
                 onFailure = {
@@ -426,7 +438,7 @@ class PassportFragment : Fragment() {
         isScanning = false
     }
 
-    @Suppress("DEPRECATION")
+    @Suppress("DEPRECATION") // ADDED for the whole class
     private class ReadPassportTask(
         private val tag: Tag,
         private val mrzInfo: MRZInfo,
@@ -434,6 +446,7 @@ class PassportFragment : Fragment() {
         private val onFailure: () -> Unit
     ) : android.os.AsyncTask<Void, Void, PassportData?>() {
 
+        @Deprecated("Deprecated in Java") // ADDED
         override fun doInBackground(vararg params: Void?): PassportData? {
             return try {
                 val isoDep = IsoDep.get(tag)
@@ -472,10 +485,23 @@ class PassportFragment : Fragment() {
                         val imageInfos = faceInfos[0].faceImageInfos
                         if (imageInfos.isNotEmpty()) {
                             val imageBytes = imageInfos[0].imageInputStream.readBytes()
+                            // --- FIX for JPEG2000 ---
+                            // Android's BitmapFactory cannot decode JPEG2000 (j2c)
+                            // You MUST add a library like 'org.jmrtd:jmrtd-android:0.7.20'
+                            // or a specific JPEG2000 decoder.
+                            // For now, we'll assume it's a standard format.
+                            // If it fails, bitmap will be null.
                             bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+                            if (bitmap == null) {
+                                Log.w(TAG, "Failed to decode DG2 photo. It might be JPEG2000 (j2c), which requires a special decoder.")
+                            }
+                            // --- END FIX ---
                         }
                     }
-                } catch (_: Exception) { /* optional photo */ }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Could not read DG2 (photo)", e)
+                    /* optional photo */
+                }
 
                 passportService.close()
                 cardService.close()
@@ -493,6 +519,7 @@ class PassportFragment : Fragment() {
             }
         }
 
+        @Deprecated("Deprecated in Java") // ADDED
         override fun onPostExecute(result: PassportData?) {
             if (result != null) onSuccess(result) else onFailure()
         }

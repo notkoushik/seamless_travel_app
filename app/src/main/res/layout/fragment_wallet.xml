@@ -1,219 +1,254 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:gravity="center_horizontal"
-    android:orientation="vertical"
-    android:padding="16dp"
+    android:background="#F0F2F5"
     tools:context=".WalletFragment">
 
     <TextView
+        android:id="@+id/wallet_title"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="24dp"
-        android:text="Enrollment Complete!"
-        android:textSize="24sp"
-        android:textStyle="bold" />
+        android:layout_marginTop="32dp"
+        android:text="Your Digital Boarding Pass"
+        android:textColor="@android:color/black"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- This ConstraintLayout is the main boarding pass template -->
+    <!-- This is the main pass layout -->
     <androidx.constraintlayout.widget.ConstraintLayout
-        android:id="@+id/boarding_pass_layout"
-        android:layout_width="match_parent"
+        android:id="@+id/pass_layout"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_marginStart="24dp"
+        android:layout_marginTop="24dp"
+        android:layout_marginEnd="24dp"
         android:background="@drawable/wallet_background"
         android:elevation="8dp"
-        android:padding="20dp">
+        android:padding="20dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/wallet_title">
 
-        <!-- Top Section: Logo, Airline Name, and Class -->
+        <!-- Header -->
         <ImageView
             android:id="@+id/airline_logo"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:contentDescription="Airline Logo"
-            android:src="@drawable/ic_airplane"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent" />
+            app:layout_constraintTop_toTopOf="parent"
+            app:srcCompat="@drawable/ic_airplane" />
 
         <TextView
-            android:id="@+id/wallet_airline"
+            android:id="@+id/airline_name"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
-            android:text="Unknown Airline"
+            android:layout_marginStart="12dp"
+            android:text="Airline Name"
+            android:textColor="@android:color/white"
             android:textSize="20sp"
             android:textStyle="bold"
             app:layout_constraintBottom_toBottomOf="@id/airline_logo"
-            app:layout_constraintEnd_toStartOf="@id/wallet_class"
-            app:layout_constraintHorizontal_bias="0.0"
-            app:layout_constraintStart_toEndOf="@id/airline_logo"
-            app:layout_constraintTop_toTopOf="@id/airline_logo"
-            app:layout_constraintVertical_bias="0.428" />
-
-        <TextView
-            android:id="@+id/wallet_class"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="ECONOMY"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            app:layout_constraintBottom_toBottomOf="@id/airline_logo"
             app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toEndOf="@id/airline_logo"
             app:layout_constraintTop_toTopOf="@id/airline_logo" />
 
-        <!-- From and To Section -->
-        <TextView
-            android:id="@+id/wallet_from"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="BOM"
-            android:textSize="40sp"
-            android:textStyle="bold"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/airline_logo" />
-
-        <ImageView
-            android:id="@+id/flight_icon"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:contentDescription="Route icon"
-            android:src="@android:drawable/ic_menu_send"
-            app:layout_constraintBottom_toBottomOf="@id/wallet_from"
-            app:layout_constraintEnd_toStartOf="@id/wallet_to"
-            app:layout_constraintStart_toEndOf="@id/wallet_from"
-            app:layout_constraintTop_toTopOf="@id/wallet_from" />
-
-        <TextView
-            android:id="@+id/wallet_to"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="JFK"
-            android:textSize="40sp"
-            android:textStyle="bold"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toTopOf="@id/wallet_from" />
-
-        <!-- Separator -->
-        <View
-            android:id="@+id/separator"
-            android:layout_width="0dp"
-            android:layout_height="1dp"
-            android:layout_marginTop="16dp"
-            android:background="@android:color/darker_gray"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/wallet_from" />
-
-        <!-- Passenger and Flight Details -->
+        <!-- Passenger Info -->
         <TextView
             android:id="@+id/label_passenger"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="24dp"
             android:text="PASSENGER"
+            android:textColor="@color/wallet_pass_labels"
             android:textSize="12sp"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/separator" />
+            app:layout_constraintTop_toBottomOf="@id/airline_logo" />
 
         <TextView
-            android:id="@+id/wallet_name"
+            android:id="@+id/passenger_name"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="KUCHANA / BHASKAR"
+            android:layout_marginTop="4dp"
+            android:text="Passenger Name"
+            android:textColor="@android:color/white"
             android:textSize="18sp"
+            android:textStyle="bold"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/label_passenger" />
 
+        <!-- Flight Route -->
+        <TextView
+            android:id="@+id/from_code"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="JFK"
+            android:textColor="@android:color/white"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/passenger_name" />
+
+        <ImageView
+            android:id="@+id/route_airplane_icon"
+            android:layout_width="wrap_content"
+            android:layout_height="0dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            app:layout_constraintBottom_toBottomOf="@id/from_code"
+            app:layout_constraintEnd_toStartOf="@id/to_code"
+            app:layout_constraintStart_toEndOf="@id/from_code"
+            app:layout_constraintTop_toTopOf="@id/from_code"
+            app:srcCompat="@drawable/ic_airplane"
+            app:tint="@android:color/white" />
+
+        <TextView
+            android:id="@+id/to_code"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="LAX"
+            android:textColor="@android:color/white"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="@id/from_code" />
+
+        <!-- Divider -->
+        <View
+            android:id="@+id/divider"
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_marginTop="20dp"
+            android:background="@color/wallet_pass_labels"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/from_code" />
+
+        <!-- Flight Details -->
         <TextView
             android:id="@+id/label_flight"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
             android:text="FLIGHT"
+            android:textColor="@color/wallet_pass_labels"
             android:textSize="12sp"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toTopOf="@id/label_passenger" />
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/divider" />
 
         <TextView
-            android:id="@+id/wallet_flight"
+            android:id="@+id/flight_code"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="AI119"
-            android:textSize="18sp"
-            app:layout_constraintEnd_toEndOf="parent"
+            android:layout_marginTop="4dp"
+            android:text="SK123"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/label_flight" />
 
-        <!-- Seat and Gate Details -->
         <TextView
             android:id="@+id/label_seat"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
             android:text="SEAT"
+            android:textColor="@color/wallet_pass_labels"
             android:textSize="12sp"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@id/wallet_name" />
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="@id/label_flight" />
 
         <TextView
-            android:id="@+id/wallet_seat"
+            android:id="@+id/seat_code"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="41A"
-            android:textSize="18sp"
-            app:layout_constraintStart_toStartOf="parent"
+            android:layout_marginTop="4dp"
+            android:text="7A"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toBottomOf="@id/label_seat" />
 
+        <!-- Gate & Class Details -->
         <TextView
             android:id="@+id/label_gate"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
             android:text="GATE"
+            android:textColor="@color/wallet_pass_labels"
             android:textSize="12sp"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toTopOf="@id/label_seat" />
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/flight_code" />
 
         <TextView
-            android:id="@+id/wallet_gate"
+            android:id="@+id/gate_code"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="66"
-            android:textSize="18sp"
-            app:layout_constraintEnd_toEndOf="parent"
+            android:layout_marginTop="4dp"
+            android:text="B42"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/label_gate" />
+
+        <TextView
+            android:id="@+id/label_class"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="CLASS"
+            android:textColor="@color/wallet_pass_labels"
+            android:textSize="12sp"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="@id/label_gate" />
+
+        <TextView
+            android:id="@+id/class_code"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Business"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/label_class" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+    <!-- Buttons -->
+    <ImageButton
+        android:id="@+id/add_to_google_wallet_button"
+        android:layout_width="0dp"
+        android:layout_height="56dp"
+        android:layout_marginStart="24dp"
         android:layout_marginTop="24dp"
-        android:gravity="center"
-        android:orientation="horizontal">
+        android:layout_marginEnd="24dp"
+        android:background="@drawable/google_wallet_button"
+        android:contentDescription="Add to Google Wallet"
+        android:scaleType="fitCenter"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/pass_layout" />
 
-        <Button
-            android:id="@+id/start_over_button"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginEnd="8dp"
-            android:text="Start Over" />
+    <Button
+        android:id="@+id/start_over_button"
+        style="@style/Widget.AppCompat.Button.Borderless"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="Start Over"
+        android:textColor="@color/primary"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/add_to_google_wallet_button" />
 
-        <!--
-          MODIFICATION:
-          Set explicit width/height to match the vector drawable size.
-          Set scaleType to fitCenter to ensure it scales correctly.
-        -->
-        <ImageButton
-            android:id="@+id/add_to_google_wallet_button"
-            android:layout_width="210dp"
-            android:layout_height="50dp"
-            android:layout_marginStart="8dp"
-            android:scaleType="fitCenter"
-            android:background="?attr/selectableItemBackground"
-            android:contentDescription="Add to Google Wallet"
-            android:src="@drawable/google_wallet_button" />
-
-    </LinearLayout>
-
-</LinearLayout>
-
+</androidx.constraintlayout.widget.ConstraintLayout>
