@@ -11,20 +11,16 @@ class SharedViewModel : ViewModel() {
     val selfieTaken = MutableLiveData<Boolean>(false)
     val boardingPassData = MutableLiveData<BoardingPassData?>()
 
-    // --- ADD THIS LINE ---
+    // --- Data holder for Aadhaar flow ---
     val aadhaarData = MutableLiveData<AadhaarData?>()
 
-    /**
-     * Clears all session data from the ViewModel to allow for a restart.
-     */
     fun clearData() {
         passportData.value = null
         idPhotoBitmap.value = null
         selfieBitmap.value = null
         selfieTaken.value = false
         boardingPassData.value = null
-
-        // --- ADD THIS LINE ---
+        // --- Clear Aadhaar data on restart ---
         aadhaarData.value = null
     }
 }
@@ -50,16 +46,11 @@ data class BoardingPassData(
     val to: String
 )
 
-// --- ADD THIS NEW DATA CLASS ---
-/**
- * Holds the demographic data extracted from the Aadhaar e-KYC XML.
- * The XML attributes are typically:
- * "name" -> Name
- * "dob"  -> Date of Birth (YYYY-MM-DD)
- * "gender" -> M / F / T
- */
+// --- Data class to hold the parsed XML data from the QR code ---
 data class AadhaarData(
+    val uid: String,
     val name: String,
+    val gender: String,
     val dob: String,
-    val gender: String
+    val photo: Bitmap?
 )

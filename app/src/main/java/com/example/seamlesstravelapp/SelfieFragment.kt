@@ -1,6 +1,3 @@
-// unchanged structure, includes tuned liveness thresholds;
-// updated pass rule with a safe “strong L2 OR” fallback
-// (full file kept so you can paste)
 package com.example.seamlesstravelapp
 
 import android.Manifest
@@ -23,6 +20,8 @@ import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
+import com.google.android.gms.tasks.Task
+import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceDetection
@@ -51,23 +50,22 @@ class SelfieFragment : Fragment(R.layout.fragment_selfie) {
     private var faceDetector: FaceDetector? = null
     private lateinit var recognizer: FaceRecognizer
 
+    // High-accuracy detector for single images (Aadhaar + Selfie)
+    private var highAccuracyFaceDetector: FaceDetector? = null
+
+    // Liveness FSM state
     private enum class Step { CENTER, SIDE1, SIDE2, BACK_CENTER, DONE }
     private var step = Step.CENTER
     private var stepStartedAt = 0L
     private var side1IsPositive: Boolean? = null
-
     private val yawWindow = ArrayDeque<Float>()
     private val maxWindow = 6
     private var yawBaseline = 0f
     private var baselineSamples = 0
-
     private val dwellMs = 400L
     private val centerTol = 7f
     private val yawTurnTol = 14f
-    private val yawReleaseTol = 10f
     private val noseTurnTol = 0.07f
-    private val noseReleaseTol = 0.05f
-
     private val running = AtomicBoolean(false)
 
     private val permissionLauncher =
@@ -87,12 +85,21 @@ class SelfieFragment : Fragment(R.layout.fragment_selfie) {
         cameraExecutor = Executors.newSingleThreadExecutor()
         recognizer = FaceRecognizer(requireContext().applicationContext)
 
+        // Fast detector for real-time liveness
         faceDetector = FaceDetection.getClient(
             FaceDetectorOptions.Builder()
                 .enableTracking()
                 .setMinFaceSize(0.15f)
                 .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
                 .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                .build()
+        )
+
+        // Accurate detector for matching (as per Python logic)
+        highAccuracyFaceDetector = FaceDetection.getClient(
+            FaceDetectorOptions.Builder()
+                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
+                .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
                 .build()
         )
 
@@ -103,6 +110,7 @@ class SelfieFragment : Fragment(R.layout.fragment_selfie) {
 
     override fun onDestroyView() {
         faceDetector?.close()
+        highAccuracyFaceDetector?.close()
         recognizer.close()
         cameraExecutor.shutdown()
         super.onDestroyView()
@@ -147,6 +155,8 @@ class SelfieFragment : Fragment(R.layout.fragment_selfie) {
         side1IsPositive = null
     }
 
+    // --- LIVENESS DETECTION (Analyzes camera feed) ---
+
     private val analyzer = ImageAnalysis.Analyzer { proxy ->
         if (!running.compareAndSet(false, true)) { proxy.close(); return@Analyzer }
         val media = proxy.image ?: run { running.set(false); proxy.close(); return@Analyzer }
@@ -166,7 +176,7 @@ class SelfieFragment : Fragment(R.layout.fragment_selfie) {
             ?.addOnCompleteListener { running.set(false); proxy.close() }
     }
 
-    private fun updateStateWithFace(face: com.google.mlkit.vision.face.Face) {
+    private fun updateStateWithFace(face: Face) {
         val rawYaw = face.headEulerAngleY
         pushYaw(rawYaw)
         val yaw = smoothYaw()
@@ -178,7 +188,7 @@ class SelfieFragment : Fragment(R.layout.fragment_selfie) {
             }
         }
 
-        val noseX = face.getLandmark(com.google.mlkit.vision.face.FaceLandmark.NOSE_BASE)?.position?.x
+        val noseX = face.getLandmark(FaceLandmark.NOSE_BASE)?.position?.x
         val box = face.boundingBox
         val boxCenterX = box.centerX().toFloat()
         val width = box.width().coerceAtLeast(1)
@@ -186,14 +196,14 @@ class SelfieFragment : Fragment(R.layout.fragment_selfie) {
         val noseRight = noseOffsetNorm > noseTurnTol
         val noseLeft  = noseOffsetNorm < -noseTurnTol
 
-        advanceLiveness(yaw, noseLeft, noseRight, face)
+        advanceLiveness(yaw, noseLeft, noseRight)
     }
 
     private fun yawDelta(y: Float): Float = y - yawBaseline
     private fun pushYaw(y: Float) { if (yawWindow.size >= maxWindow) yawWindow.removeFirst(); yawWindow.addLast(y) }
     private fun smoothYaw(): Float { if (yawWindow.isEmpty()) return 0f; var s = 0f; for (v in yawWindow) s += v; return s / yawWindow.size }
 
-    private fun advanceLiveness(yawSmoothed: Float, noseLeft: Boolean, noseRight: Boolean, face: Face) {
+    private fun advanceLiveness(yawSmoothed: Float, noseLeft: Boolean, noseRight: Boolean) {
         val now = SystemClock.elapsedRealtime()
         fun held() = (now - stepStartedAt) >= dwellMs
         fun enter(s: Step) { step = s; stepStartedAt = now }
@@ -206,18 +216,18 @@ class SelfieFragment : Fragment(R.layout.fragment_selfie) {
         when (step) {
             Step.CENTER -> {
                 instructionText.text = "Turn to one side"
-                if (turnedRight && face.bigEnough()) { side1IsPositive = true; enter(Step.SIDE1) }
-                else if (turnedLeft && face.bigEnough()) { side1IsPositive = false; enter(Step.SIDE1) }
+                if (turnedRight) { side1IsPositive = true; enter(Step.SIDE1) }
+                else if (turnedLeft) { side1IsPositive = false; enter(Step.SIDE1) }
             }
             Step.SIDE1 -> {
                 instructionText.text = if (side1IsPositive == true) "Hold right" else "Hold left"
-                if (held()) enter(Step.SIDE2) else if (!stillOnSide(dy, side1IsPositive)) stepStartedAt = now
+                if (held()) enter(Step.SIDE2)
             }
             Step.SIDE2 -> {
                 instructionText.text = if (side1IsPositive == true) "Now turn left" else "Now turn right"
                 val needPositive = side1IsPositive != true
                 val onSecondSide = if (needPositive) turnedRight else turnedLeft
-                if (onSecondSide && held()) enter(Step.BACK_CENTER) else if (stillOnSide(dy, side1IsPositive)) stepStartedAt = now
+                if (onSecondSide && held()) enter(Step.BACK_CENTER)
             }
             Step.BACK_CENTER -> {
                 instructionText.text = "Back to center"
@@ -227,20 +237,14 @@ class SelfieFragment : Fragment(R.layout.fragment_selfie) {
         }
     }
 
-    private fun stillOnSide(dy: Float, positiveSide: Boolean?): Boolean =
-        if (positiveSide == true) dy > yawReleaseTol else dy < -yawReleaseTol
-
-    private fun Face.bigEnough(): Boolean {
-        val width = previewView.width.takeIf { it > 0 } ?: return true
-        return boundingBox.width() >= width * 0.16f
-    }
-
     private fun onLivenessDone() {
         instructionText.text = "Liveness complete"
         captureButton.isEnabled = true
         imageAnalyzer?.clearAnalyzer()
         view?.postDelayed({ takeSelfieAndVerify() }, 450)
     }
+
+    // --- FACE MATCHING (Runs on button click) ---
 
     private fun takeSelfieAndVerify() {
         val ic = imageCapture ?: return
@@ -257,7 +261,8 @@ class SelfieFragment : Fragment(R.layout.fragment_selfie) {
                             captureButton.isEnabled = true
                             return
                         }
-                        processSelfieBitmap(bmp, imageProxy.imageInfo.rotationDegrees)
+                        // This is the main function that performs the logic from your Python files
+                        processAndCompareFaces(bmp, imageProxy.imageInfo.rotationDegrees)
                     } finally { imageProxy.close() }
                 }
                 override fun onError(exception: ImageCaptureException) {
@@ -268,67 +273,96 @@ class SelfieFragment : Fragment(R.layout.fragment_selfie) {
         )
     }
 
-    private fun processSelfieBitmap(bmp: Bitmap, rotation: Int) {
-        val rotated = rotateBitmap(bmp, rotation)
-        val detector = FaceDetection.getClient(
-            FaceDetectorOptions.Builder()
-                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
-                .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
-                .build()
-        )
-        detector.process(InputImage.fromBitmap(rotated, 0))
-            .addOnSuccessListener { faces ->
+    /**
+     * This function implements the logic from your Python scripts.
+     * It aligns BOTH the Aadhaar photo and the Selfie photo before generating embeddings.
+     */
+    private fun processAndCompareFaces(selfieBitmap: Bitmap, rotation: Int) {
+        val rotatedSelfie = rotateBitmap(selfieBitmap, rotation)
+
+        // --- THIS IS STEP 7 from your flow ---
+        val aadhaarBitmap = sharedViewModel.idPhotoBitmap.value
+        if (aadhaarBitmap == null) {
+            Toast.makeText(requireContext(), "Aadhaar data missing. Rescan Aadhaar.", Toast.LENGTH_LONG).show()
+            (activity as? MainActivity)?.navigateToAadhaarFragment()
+            return
+        }
+
+        // 1. Asynchronously align both faces (Implements logic from your Python files)
+        val selfieAlignTask = detectAndAlignFace(rotatedSelfie, isFlipped = true)
+        val aadhaarAlignTask = detectAndAlignFace(aadhaarBitmap, isFlipped = false)
+
+        Tasks.whenAllSuccess<Bitmap>(selfieAlignTask, aadhaarAlignTask).addOnSuccessListener { results ->
+            // 2. We now have two perfectly aligned 112x112 bitmaps
+            val alignedSelfie = results[0]
+            val alignedAadhaar = results[1]
+
+            // 3. Generate embeddings from the aligned bitmaps
+            val selfEmb = recognizer.getEmbedding(alignedSelfie)
+            val idEmb = recognizer.getEmbedding(alignedAadhaar)
+
+            // 4. Compare embeddings
+            val cos = recognizer.cosineSimilarity(idEmb, selfEmb)
+            val dist = recognizer.l2Distance(idEmb, selfEmb)
+
+            // 5. Make decision
+            val strongL2 = dist <= 1.00f
+            val pass = (cos >= FaceRecognizer.COSINE_SIM_THRESHOLD && dist <= FaceRecognizer.L2_DISTANCE_THRESHOLD) ||
+                    (strongL2 && cos >= 0.50f)
+
+            Log.d("SelfieFragment", "Match complete: Cosine=$cos, L2-Dist=$dist, Pass=$pass")
+
+            if (pass) {
+                Toast.makeText(requireContext(), "Verified (Score: ${String.format("%.2f", cos)})", Toast.LENGTH_LONG).show()
+                (activity as? MainActivity)?.navigateToBoardingPassFragment() // Go to next step
+            } else {
+                Toast.makeText(requireContext(), "Not a match. Please rescan your ID.", Toast.LENGTH_LONG).show()
+                (activity as? MainActivity)?.restartProcess() // Failed, restart full process
+            }
+
+        }.addOnFailureListener { e ->
+            // This happens if a face wasn't found in one of the images
+            Log.e("SelfieFragment", "Alignment failed for one or both images.", e)
+
+            // --- THIS IS THE FIX ---
+            Toast.makeText(requireContext(), "Could not find face in one or both images. ${e.message}", Toast.LENGTH_LONG).show()
+
+            captureButton.isEnabled = true
+            (activity as? MainActivity)?.restartProcess() // Restart
+        }
+    }
+
+    /**
+     * New function to align and crop ANY bitmap (Aadhaar or Selfie)
+     * This implements the logic from your Python scripts.
+     * @param isFlipped True if this is the live selfie (front camera)
+     * @return A Task that will resolve with a 112x112 aligned Bitmap
+     */
+    private fun detectAndAlignFace(bitmap: Bitmap, isFlipped: Boolean): Task<Bitmap> {
+        val input = InputImage.fromBitmap(bitmap, 0)
+        return highAccuracyFaceDetector!!.process(input)
+            .continueWith<Bitmap>(cameraExecutor) { task ->
+                val faces = task.result
                 val face = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() }
                 if (face == null) {
-                    Toast.makeText(requireContext(), "No face in selfie", Toast.LENGTH_SHORT).show()
-                    captureButton.isEnabled = true
-                    return@addOnSuccessListener
+                    throw Exception("No face found in image.")
                 }
 
-                val cropA = cropWithPadding(rotated, face.boundingBox, 0.35f, 0.45f)
-                val cropB = cropWithPadding(rotated, face.boundingBox, 0.28f, 0.38f)
-                val inputA = Bitmap.createScaledBitmap(flipHorizontal(cropA), 112, 112, true)
-                val inputB = Bitmap.createScaledBitmap(flipHorizontal(cropB), 112, 112, true)
+                // Crop and align the face
+                val crop = cropWithPadding(bitmap, face.boundingBox, 0.35f, 0.45f)
 
-                val idBmp = sharedViewModel.idPhotoBitmap.value
-                if (idBmp == null) {
-                    Toast.makeText(requireContext(), "ID not captured. Going back…", Toast.LENGTH_SHORT).show()
-                    (activity as? MainActivity)?.navigateToScanIdFragment()
-                    return@addOnSuccessListener
-                }
+                // Flip if it's the selfie
+                val flipped = if(isFlipped) flipHorizontal(crop) else crop
 
-                val idEmb = recognizer.getEmbedding(idBmp)
-                val selfEmbA = recognizer.getEmbedding(inputA)
-                val selfEmbB = recognizer.getEmbedding(inputB)
+                // Scale to 112x112 (as required by model)
+                val alignedBitmap = Bitmap.createScaledBitmap(flipped, 112, 112, true)
 
-                val cosA = recognizer.cosineSimilarity(idEmb, selfEmbA)
-                val distA = recognizer.l2Distance(idEmb, selfEmbA)
-                val cosB = recognizer.cosineSimilarity(idEmb, selfEmbB)
-                val distB = recognizer.l2Distance(idEmb, selfEmbB)
-
-                val (cos, dist) = if (scoreBetter(cosA, distA, cosB, distB)) cosA to distA else cosB to distB
-                val strongL2 = dist <= 1.00f
-                val pass = (cos >= FaceRecognizer.COSINE_SIM_THRESHOLD && dist <= FaceRecognizer.L2_DISTANCE_THRESHOLD) ||
-                        (strongL2 && cos >= 0.50f)
-
-                Log.d("SelfieFragment", "cos=$cos dist=$dist pass=$pass")
-
-                if (pass) {
-                    Toast.makeText(requireContext(), "Verified (${String.format("%.2f", cos)})", Toast.LENGTH_LONG).show()
-                    (activity as? MainActivity)?.navigateToConfirmationFragment("passport")
-                } else {
-                    Toast.makeText(requireContext(), "Not a match. Please rescan your ID.", Toast.LENGTH_LONG).show()
-                    (activity as? MainActivity)?.navigateToScanIdFragment()
-                }
-            }
-            .addOnFailureListener {
-                Toast.makeText(requireContext(), "Selfie processing failed: ${it.message}", Toast.LENGTH_LONG).show()
-                captureButton.isEnabled = true
+                alignedBitmap
             }
     }
 
-    private fun scoreBetter(cosA: Float, distA: Float, cosB: Float, distB: Float): Boolean =
-        if (cosA != cosB) cosA > cosB else distA < distB
+
+    // --- BITMAP UTILITY FUNCTIONS ---
 
     private fun rotateBitmap(src: Bitmap, rotation: Int): Bitmap {
         if (rotation == 0) return src
@@ -382,8 +416,8 @@ class SelfieFragment : Fragment(R.layout.fragment_selfie) {
     private fun yuvToBitmap(image: Image): Bitmap? {
         fun yuvToNv21(image: Image): ByteArray {
             val w = image.width; val h = image.height
-            val ySize = w * h; val uvSize = w * h / 2
-            val out = ByteArray(ySize + uvSize)
+            val ySize = w * h; val uvSize = w * h / 4
+            val out = ByteArray(ySize + 2 * uvSize) // NV21 format size
 
             val y = image.planes[0].buffer
             val u = image.planes[1].buffer
@@ -395,26 +429,27 @@ class SelfieFragment : Fragment(R.layout.fragment_selfie) {
             val uPixelStride = image.planes[1].pixelStride
             val vPixelStride = image.planes[2].pixelStride
 
-            var pos = 0
-            if (yRowStride == w) {
-                y.get(out, 0, ySize); pos = ySize
-            } else {
-                var yPos = 0
-                for (row in 0 until h) {
-                    y.position(yPos)
-                    y.get(out, pos, w)
-                    yPos += yRowStride
-                    pos += w
-                }
+            var yPos = 0
+            for (row in 0 until h) {
+                y.position(yPos)
+                y.get(out, row * w, w)
+                yPos += yRowStride
             }
+
+            var uvPos = ySize
             for (row in 0 until h / 2) {
                 val vPos = row * vRowStride
                 val uPos = row * uRowStride
                 v.position(vPos)
                 u.position(uPos)
                 for (col in 0 until w / 2) {
-                    out[pos++] = v.get(col * vPixelStride)
-                    out[pos++] = u.get(col * uPixelStride)
+                    if (vPixelStride == 2 && uPixelStride == 2) {
+                        out[uvPos++] = v.get(col * vPixelStride)
+                        out[uvPos++] = u.get(col * uPixelStride)
+                    } else { // Handle planar (pixel stride = 1)
+                        out[uvPos++] = v.get()
+                        out[uvPos++] = u.get()
+                    }
                 }
             }
             return out

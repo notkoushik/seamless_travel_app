@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp"
+    tools:context=".AadhaarConfirmationFragment">
+
+    <TextView
+        android:id="@+id/tv_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Confirm Your Details"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="32dp"/>
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/aadhaar_card"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        app:layout_constraintTop_toBottomOf="@id/tv_title"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="24dp"
+        app:cardElevation="8dp"
+        app:cardCornerRadius="12dp">
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="16dp">
+
+            <ImageView
+                android:id="@+id/iv_aadhaar_photo"
+                android:layout_width="100dp"
+                android:layout_height="120dp"
+                android:scaleType="centerCrop"
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                tools:src="@drawable/ic_person"
+                android:contentDescription="Aadhaar Photo" />
+
+            <TextView
+                android:id="@+id/tv_aadhaar_name"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                app:layout_constraintStart_toEndOf="@id/iv_aadhaar_photo"
+                app:layout_constraintTop_toTopOf="@id/iv_aadhaar_photo"
+                app:layout_constraintEnd_toEndOf="parent"
+                tools:text="Koushik Botcha" />
+
+            <TextView
+                android:id="@+id/label_uid"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="UID:"
+                android:textSize="14sp"
+                android:layout_marginTop="8dp"
+                app:layout_constraintStart_toStartOf="@id/tv_aadhaar_name"
+                app:layout_constraintTop_toBottomOf="@id/tv_aadhaar_name" />
+
+            <TextView
+                android:id="@+id/tv_aadhaar_uid"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:textSize="14sp"
+                app:layout_constraintStart_toEndOf="@id/label_uid"
+                app:layout_constraintBaseline_toBaselineOf="@id/label_uid"
+                app:layout_constraintEnd_toEndOf="parent"
+                tools:text="1234 5678 9012" />
+
+            <TextView
+                android:id="@+id/label_dob"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="DOB:"
+                android:textSize="14sp"
+                android:layout_marginTop="4dp"
+                app:layout_constraintStart_toStartOf="@id/label_uid"
+                app:layout_constraintTop_toBottomOf="@id/label_uid" />
+
+            <TextView
+                android:id="@+id/tv_aadhaar_dob"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:textSize="14sp"
+                app:layout_constraintStart_toEndOf="@id/label_dob"
+                app:layout_constraintBaseline_toBaselineOf="@id/label_dob"
+                app:layout_constraintEnd_toEndOf="parent"
+                tools:text="01/01/1990" />
+
+            <TextView
+                android:id="@+id/label_gender"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Gender:"
+                android:textSize="14sp"
+                android:layout_marginTop="4dp"
+                app:layout_constraintStart_toStartOf="@id/label_dob"
+                app:layout_constraintTop_toBottomOf="@id/label_dob" />
+
+            <TextView
+                android:id="@+id/tv_aadhaar_gender"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:textSize="14sp"
+                app:layout_constraintStart_toEndOf="@id/label_gender"
+                app:layout_constraintBaseline_toBaselineOf="@id/label_gender"
+                app:layout_constraintEnd_toEndOf="parent"
+                tools:text="Male" />
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+    <Button
+        android:id="@+id/btn_confirm_aadhaar"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="Confirm and Proceed"
+        app:layout_constraintBottom_toTopOf="@id/btn_rescan_aadhaar"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginBottom="8dp"
+        android:layout_marginHorizontal="32dp"/>
+
+    <Button
+        android:id="@+id/btn_rescan_aadhaar"
+        style="@style/Widget.Material3.Button.OutlinedButton"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="Rescan"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginBottom="32dp"
+        android:layout_marginHorizontal="32dp"/>
+
+</androidx.constraintlayout.widget.ConstraintLayout>
